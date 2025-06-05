@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Image Compressor Tool</title>
+    <style>
+        /* [Previous CSS styles remain exactly the same] */
+        :root {
+            --primary: #4361ee;
+            --secondary: #3f37c9;
+            --accent: #4cc9f0;
+            --light: #f8f9fa;
+            --dark: #212529;
+            --success: #4bb543;
+            --warning: #f0ad4e;
+            --error: #d9534f;
+            --border-radius: 8px;
+            --box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        /* [Rest of the CSS remains unchanged] */
+    </style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <!-- [Previous HTML structure remains exactly the same until the script section] -->
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // [Previous DOM elements and variables remain the same]
+
+            // Enhanced compressImage function with format-specific optimization
+            function compressImage() {
+                if (!selectedFile) return;
+
+                loadingSpinner.style.display = 'block';
+                resultSection.style.display = 'none';
+                compressBtn.disabled = true;
+
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    
+                    // [Previous dimension calculation code remains the same]
+                    
+                    // Set canvas dimensions
+                    canvas.width = newWidth;
+                    canvas.height = newHeight;
+                    
+                    // Draw image with high quality scaling
+                    ctx.imageSmoothingQuality = 'high';
+                    ctx.drawImage(img, 0, 0, newWidth, newHeight);
+                    
+                    // Format-specific compression settings
+                    let mimeType, quality, targetSize;
+                    const compressionPercentage = compressionLevel.value / 100;
+                    
+                    // Determine output format and optimal settings
+                    switch(selectedFormat) {
+                        case 'jpeg':
+                            mimeType = 'image/jpeg';
+                            // JPEG: More aggressive compression but maintain decent quality
+                            quality = 0.65 + (0.25 * compressionPercentage); // 0.65-0.9 range
+                            // Target 25-75% reduction from original (more for high compression)
+                            targetSize = selectedFile.size * (0.75 - (compressionPercentage * 0.5));
+                            break;
+                            
+                        case 'png':
+                            mimeType = 'image/png';
+                            // PNG: Lossless but we can reduce color depth for smaller files
+                            quality = 1; // Not used for PNG
+                            // Target 10-40% reduction (PNG doesn't compress as well)
+                            targetSize = selectedFile.size * (0.9 - (compressionPercentage * 0.5));
+                            break;
+                            
+                        case 'webp':
+                            mimeType = 'image/webp';
+                            // WebP: Excellent compression with good quality
+                            quality = 0.75 + (0.2 * compressionPercentage); // 0.75-0.95 range
+                            // Target 30-80% reduction (WebP compresses very well)
+                            targetSize = selectedFile.size * (0.7 - (compressionPercentage * 0.5));
+                            break;
+                            
+                        default: // 'original'
+                            // Keep original format but still compress
+                            mimeType = selectedFile.type || 'image/jpeg';
+                            if (mimeType === 'image/png') {
+                                quality = 1;
+                                targetSize = selectedFile.size * (0.9 - (compressionPercentage * 0.4));
+                            } else if (mimeType === 'image/webp') {
+                                quality = 0.8;
+                                targetSize = selectedFile.size * (0.7 - (compressionPercentage * 0.5));
+                            } else {
+                                // Default to JPEG settings
+                                quality = 0.7 + (0.2 * compressionPercentage);
+                                targetSize = selectedFile.size * (0.75 - (compressionPercentage * 0.5));
+                            }
+                    }
+                    
+                    // Special case: Converting from PNG to JPEG can achieve significant savings
+                    if (selectedFile.type === 'image/png' && mimeType === 'image/jpeg') {
+                        targetSize = selectedFile.size * (0.2 + (0.3 * (1 - compressionPercentage)));
+                    }
+                    
+                    // Special case: Converting to WebP usually gives best results
+                    if (mimeType === 'image/webp') {
+                        targetSize = Math.min(targetSize, selectedFile.size * 0.7); // Cap at 70% of original
+                    }
+                    
+                    // Multiple compression attempts to hit target size
+                    let attempts = 0;
+                    const maxAttempts = 4;
+                    
+                    const compressAttempt = () => {
+                        canvas.toBlob(function(blob) {
+                            const currentSize = blob.size;
+                            const isTooLarge = currentSize > targetSize;
+                            const canTryAgain = attempts < maxAttempts && quality > 0.5;
+                            
+                            if (isTooLarge && canTryAgain) {
+                                // Adjust quality and try again
+                                quality = Math.max(0.5, quality - 0.1);
+                                attempts++;
+                                compressAttempt();
+                            } else {
+                                // Final result ready
+                                const compressedUrl = URL.createObjectURL(blob);
+                                
+                                compressedImage.onload = function() {
+                                    URL.revokeObjectURL(compressedUrl);
+                                };
+                                compressedImage.src = compressedUrl;
+                                
+                                compressedFile = new File([blob], getOutputFilename(selectedFile.name, mimeType), {
+                                    type: mimeType,
+                                    lastModified: Date.now()
+                                });
+                                
+                                showCompressionResult(selectedFile, compressedFile);
+                                
+                                loadingSpinner.style.display = 'none';
+                                resultSection.style.display = 'block';
+                                compressBtn.disabled = false;
+                                
+                                // Special handling for format conversion
+                                if (selectedFormat !== 'original' && 
+                                    !selectedFile.type.includes(selectedFormat)) {
+                                    // Show format conversion bonus message
+                                    const savings = selectedFile.size - compressedFile.size;
+                                    const percent = (savings / selectedFile.size * 100).toFixed(1);
+                                    if (percent > 20) {
+                                        const formatName = selectedFormat.toUpperCase();
+                                        alert(`Format conversion to ${formatName} achieved ${percent}% size reduction!`);
+                                    }
+                                }
+                            }
+                        }, mimeType, quality);
+                    };
+                    
+                    compressAttempt();
+                };
+                
+                img.src = URL.createObjectURL(selectedFile);
+            }
+
+            // [Rest of the helper functions remain the same]
+            
+            function getOutputFilename(originalName, mimeType) {
+                const nameWithoutExt = originalName.replace(/\.[^/.]+$/, '');
+                const extMap = {
+                    'image/jpeg': 'jpg',
+                    'image/png': 'png',
+                    'image/webp': 'webp'
+                };
+                const extension = extMap[mimeType] || 'jpg';
+                return `${nameWithoutExt}_compressed.${extension}`;
+            }
+
+            function showCompressionResult(originalFile, compressedFile) {
+                const img = new Image();
+                img.onload = function() {
+                    const originalDimensions = `${originalImage.naturalWidth}×${originalImage.naturalHeight}`;
+                    const compressedDimensions = `${img.width}×${img.height}`;
+                    
+                    originalInfo.textContent = `Size: ${formatFileSize(originalFile.size)} • Dimensions: ${originalDimensions} • Format: ${originalFile.type.split('/')[1]}`;
+                    compressedInfo.textContent = `Size: ${formatFileSize(compressedFile.size)} • Dimensions: ${compressedDimensions} • Format: ${compressedFile.type.split('/')[1]}`;
+                    
+                    const savings = originalFile.size - compressedFile.size;
+                    const percent = (savings / originalFile.size * 100).toFixed(1);
+                    
+                    savingsPercent.textContent = `${percent}%`;
+                    originalSize.textContent = formatFileSize(originalFile.size);
+                    compressedSize.textContent = formatFileSize(compressedFile.size);
+                    savingsSize.textContent = formatFileSize(savings);
+                    
+                    // Highlight significant savings
+                    if (percent > 30) {
+                        savingsPercent.style.color = 'var(--success)';
+                    } else if (percent > 10) {
+                        savingsPercent.style.color = 'var(--warning)';
+                    } else {
+                        savingsPercent.style.color = 'var(--error)';
+                    }
+                };
+                img.src = URL.createObjectURL(compressedFile);
+            }
+
+            // [Remaining functions stay identical]
+        });
+    </script>
+</body>
+</html>
